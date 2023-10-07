@@ -1,8 +1,11 @@
+from io import BytesIO
 from random import randint
 from unittest import TestCase
 
 import hashlib
 import hmac
+
+from helper import encode_base58_checksum, hash160
 
 
 class FieldElement:
@@ -131,7 +134,6 @@ class FieldElementTest(TestCase):
         self.assertEqual(a**-4 * b, FieldElement(13, 31))
 
 
-# tag::source1[]
 class Point:
 
     def __init__(self, x, y, a, b):
@@ -139,11 +141,16 @@ class Point:
         self.b = b
         self.x = x
         self.y = y
+        # x being None and y being None represents the point at infinity
+        # Check for that here since the equation below won't make sense
+        # with None values for both.
         if self.x is None and self.y is None:
             return
+        # make sure that the elliptic curve equation is satisfied
+        # y**2 == x**3 + a*x + b
         if self.y**2 != self.x**3 + a * x + b:
+            # if not, throw a ValueError
             raise ValueError('({}, {}) is not on the curve'.format(x, y))
-    # end::source1[]
 
     def __eq__(self, other):
         return self.x == other.x and self.y == other.y \
@@ -206,18 +213,16 @@ class Point:
             y = s * (self.x - x) - self.y
             return self.__class__(x, y, self.a, self.b)
 
-    # tag::source3[]
     def __rmul__(self, coefficient):
         coef = coefficient
-        current = self  # <1>
-        result = self.__class__(None, None, self.a, self.b)  # <2>
+        current = self
+        result = self.__class__(None, None, self.a, self.b)
         while coef:
-            if coef & 1:  # <3>
+            if coef & 1:
                 result += current
-            current += current  # <4>
-            coef >>= 1  # <5>
+            current += current
+            coef >>= 1
         return result
-    # end::source3[]
 
 
 class PointTest(TestCase):
@@ -253,25 +258,33 @@ class PointTest(TestCase):
         self.assertEqual(a + a, Point(x=18, y=-77, a=5, b=7))
 
 
-# tag::source2[]
 class ECCTest(TestCase):
 
     def test_on_curve(self):
+        # tests the following points whether they are on the curve or not
+        # on curve y^2=x^3-7 over F_223:
+        # (192,105) (17,56) (200,119) (1,193) (42,99)
+        # the ones that aren't should raise a ValueError
         prime = 223
         a = FieldElement(0, prime)
         b = FieldElement(7, prime)
+
         valid_points = ((192, 105), (17, 56), (1, 193))
         invalid_points = ((200, 119), (42, 99))
+
+        # iterate over valid points
         for x_raw, y_raw in valid_points:
             x = FieldElement(x_raw, prime)
             y = FieldElement(y_raw, prime)
-            Point(x, y, a, b)  # <1>
+            # Creating the point should not result in an error
+            Point(x, y, a, b)
+
+        # iterate over invalid points
         for x_raw, y_raw in invalid_points:
             x = FieldElement(x_raw, prime)
             y = FieldElement(y_raw, prime)
             with self.assertRaises(ValueError):
-                Point(x, y, a, b)  # <1>
-    # end::source2[]
+                Point(x, y, a, b)
 
     def test_add(self):
         # tests the following additions on curve y^2=x^3-7 over F_223:
@@ -288,12 +301,19 @@ class ECCTest(TestCase):
             (47, 71, 117, 141, 60, 139),
             (143, 98, 76, 66, 47, 71),
         )
-
-        # loop over additions
-        # initialize x's and y's as FieldElements
-        # create p1, p2 and p3 as Points
-        # check p1+p2==p3
-        raise NotImplementedError
+        # iterate over the additions
+        for x1_raw, y1_raw, x2_raw, y2_raw, x3_raw, y3_raw in additions:
+            x1 = FieldElement(x1_raw, prime)
+            y1 = FieldElement(y1_raw, prime)
+            p1 = Point(x1, y1, a, b)
+            x2 = FieldElement(x2_raw, prime)
+            y2 = FieldElement(y2_raw, prime)
+            p2 = Point(x2, y2, a, b)
+            x3 = FieldElement(x3_raw, prime)
+            y3 = FieldElement(y3_raw, prime)
+            p3 = Point(x3, y3, a, b)
+            # check that p1 + p2 == p3
+            self.assertEqual(p1 + p2, p3)
 
     def test_rmul(self):
         # tests the following scalar multiplications
@@ -334,19 +354,12 @@ class ECCTest(TestCase):
             self.assertEqual(s * p1, p2)
 
 
-# tag::source6[]
 A = 0
 B = 7
-# end::source6[]
-# tag::source4[]
 P = 2**256 - 2**32 - 977
-# end::source4[]
-# tag::source9[]
 N = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141
-# end::source9[]
 
 
-# tag::source5[]
 class S256Field(FieldElement):
 
     def __init__(self, num, prime=None):
@@ -354,10 +367,13 @@ class S256Field(FieldElement):
 
     def __repr__(self):
         return '{:x}'.format(self.num).zfill(64)
-# end::source5[]
+
+    # tag::source2[]
+    def sqrt(self):
+        return self**((P + 1) // 4)
+    # end::source2[]
 
 
-# tag::source7[]
 class S256Point(Point):
 
     def __init__(self, x, y, a=None, b=None):
@@ -365,8 +381,7 @@ class S256Point(Point):
         if type(x) == int:
             super().__init__(x=S256Field(x), y=S256Field(y), a=a, b=b)
         else:
-            super().__init__(x=x, y=y, a=a, b=b)  # <1>
-    # end::source7[]
+            super().__init__(x=x, y=y, a=a, b=b)
 
     def __repr__(self):
         if self.x is None:
@@ -374,27 +389,78 @@ class S256Point(Point):
         else:
             return 'S256Point({}, {})'.format(self.x, self.y)
 
-    # tag::source8[]
     def __rmul__(self, coefficient):
-        coef = coefficient % N  # <1>
+        coef = coefficient % N
         return super().__rmul__(coef)
-    # end::source8[]
 
-    # tag::source12[]
     def verify(self, z, sig):
-        s_inv = pow(sig.s, N - 2, N)  # <1>
-        u = z * s_inv % N  # <2>
-        v = sig.r * s_inv % N  # <3>
-        total = u * G + v * self  # <4>
-        return total.x.num == sig.r  # <5>
-    # end::source12[]
+        # By Fermat's Little Theorem, 1/s = pow(s, N-2, N)
+        s_inv = pow(sig.s, N - 2, N)
+        # u = z / s
+        u = z * s_inv % N
+        # v = r / s
+        v = sig.r * s_inv % N
+        # u*G + v*P should have as the x coordinate, r
+        total = u * G + v * self
+        return total.x.num == sig.r
+
+    # tag::source1[]
+    def sec(self, compressed=True):
+        '''returns the binary version of the SEC format'''
+        if compressed:
+            if self.y.num % 2 == 0:
+                return b'\x02' + self.x.num.to_bytes(32, 'big')
+            else:
+                return b'\x03' + self.x.num.to_bytes(32, 'big')
+        else:
+            return b'\x04' + self.x.num.to_bytes(32, 'big') + \
+                self.y.num.to_bytes(32, 'big')
+    # end::source1[]
+
+    # tag::source5[]
+    def hash160(self, compressed=True):
+        return hash160(self.sec(compressed))
+
+    def address(self, compressed=True, testnet=False):
+        '''Returns the address string'''
+        h160 = self.hash160(compressed)
+        if testnet:
+            prefix = b'\x6f'
+        else:
+            prefix = b'\x00'
+        return encode_base58_checksum(prefix + h160)
+    # end::source5[]
+
+    # tag::source3[]
+    @classmethod
+    def parse(self, sec_bin):
+        '''returns a Point object from a SEC binary (not hex)'''
+        if sec_bin[0] == 4:  # <1>
+            x = int.from_bytes(sec_bin[1:33], 'big')
+            y = int.from_bytes(sec_bin[33:65], 'big')
+            return S256Point(x=x, y=y)
+        is_even = sec_bin[0] == 2  # <2>
+        x = S256Field(int.from_bytes(sec_bin[1:], 'big'))
+        # right side of the equation y^2 = x^3 + 7
+        alpha = x**3 + S256Field(B)
+        # solve for left side
+        beta = alpha.sqrt()  # <3>
+        if beta.num % 2 == 0:  # <4>
+            even_beta = beta
+            odd_beta = S256Field(P - beta.num)
+        else:
+            even_beta = S256Field(P - beta.num)
+            odd_beta = beta
+        if is_even:
+            return S256Point(x, even_beta)
+        else:
+            return S256Point(x, odd_beta)
+    # end::source3[]
 
 
-# tag::source10[]
 G = S256Point(
     0x79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798,
     0x483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8)
-# end::source10[]
 
 
 class S256Test(TestCase):
@@ -433,8 +499,53 @@ class S256Test(TestCase):
         s = 0xc7207fee197d27c618aea621406f6bf5ef6fca38681d82b2f06fddbdce6feab6
         self.assertTrue(point.verify(z, Signature(r, s)))
 
+    def test_sec(self):
+        coefficient = 999**3
+        uncompressed = '049d5ca49670cbe4c3bfa84c96a8c87df086c6ea6a24ba6b809c9de234496808d56fa15cc7f3d38cda98dee2419f415b7513dde1301f8643cd9245aea7f3f911f9'
+        compressed = '039d5ca49670cbe4c3bfa84c96a8c87df086c6ea6a24ba6b809c9de234496808d5'
+        point = coefficient * G
+        self.assertEqual(point.sec(compressed=False), bytes.fromhex(uncompressed))
+        self.assertEqual(point.sec(compressed=True), bytes.fromhex(compressed))
+        coefficient = 123
+        uncompressed = '04a598a8030da6d86c6bc7f2f5144ea549d28211ea58faa70ebf4c1e665c1fe9b5204b5d6f84822c307e4b4a7140737aec23fc63b65b35f86a10026dbd2d864e6b'
+        compressed = '03a598a8030da6d86c6bc7f2f5144ea549d28211ea58faa70ebf4c1e665c1fe9b5'
+        point = coefficient * G
+        self.assertEqual(point.sec(compressed=False), bytes.fromhex(uncompressed))
+        self.assertEqual(point.sec(compressed=True), bytes.fromhex(compressed))
+        coefficient = 42424242
+        uncompressed = '04aee2e7d843f7430097859e2bc603abcc3274ff8169c1a469fee0f20614066f8e21ec53f40efac47ac1c5211b2123527e0e9b57ede790c4da1e72c91fb7da54a3'
+        compressed = '03aee2e7d843f7430097859e2bc603abcc3274ff8169c1a469fee0f20614066f8e'
+        point = coefficient * G
+        self.assertEqual(point.sec(compressed=False), bytes.fromhex(uncompressed))
+        self.assertEqual(point.sec(compressed=True), bytes.fromhex(compressed))
 
-# tag::source11[]
+    def test_address(self):
+        secret = 888**3
+        mainnet_address = '148dY81A9BmdpMhvYEVznrM45kWN32vSCN'
+        testnet_address = 'mieaqB68xDCtbUBYFoUNcmZNwk74xcBfTP'
+        point = secret * G
+        self.assertEqual(
+            point.address(compressed=True, testnet=False), mainnet_address)
+        self.assertEqual(
+            point.address(compressed=True, testnet=True), testnet_address)
+        secret = 321
+        mainnet_address = '1S6g2xBJSED7Qr9CYZib5f4PYVhHZiVfj'
+        testnet_address = 'mfx3y63A7TfTtXKkv7Y6QzsPFY6QCBCXiP'
+        point = secret * G
+        self.assertEqual(
+            point.address(compressed=False, testnet=False), mainnet_address)
+        self.assertEqual(
+            point.address(compressed=False, testnet=True), testnet_address)
+        secret = 4242424242
+        mainnet_address = '1226JSptcStqn4Yq9aAmNXdwdc2ixuH9nb'
+        testnet_address = 'mgY3bVusRUL6ZB2Ss999CSrGVbdRwVpM8s'
+        point = secret * G
+        self.assertEqual(
+            point.address(compressed=False, testnet=False), mainnet_address)
+        self.assertEqual(
+            point.address(compressed=False, testnet=True), testnet_address)
+
+
 class Signature:
 
     def __init__(self, r, s):
@@ -443,28 +554,87 @@ class Signature:
 
     def __repr__(self):
         return 'Signature({:x},{:x})'.format(self.r, self.s)
-# end::source11[]
+
+    # tag::source4[]
+    def der(self):
+        rbin = self.r.to_bytes(32, byteorder='big')
+        # remove all null bytes at the beginning
+        rbin = rbin.lstrip(b'\x00')
+        # if rbin has a high bit, add a \x00
+        if rbin[0] & 0x80:
+            rbin = b'\x00' + rbin
+        result = bytes([2, len(rbin)]) + rbin  # <1>
+        sbin = self.s.to_bytes(32, byteorder='big')
+        # remove all null bytes at the beginning
+        sbin = sbin.lstrip(b'\x00')
+        # if sbin has a high bit, add a \x00
+        if sbin[0] & 0x80:
+            sbin = b'\x00' + sbin
+        result += bytes([2, len(sbin)]) + sbin
+        return bytes([0x30, len(result)]) + result
+    # end::source4[]
+
+    @classmethod
+    def parse(cls, signature_bin):
+        s = BytesIO(signature_bin)
+        compound = s.read(1)[0]
+        if compound != 0x30:
+            raise SyntaxError("Bad Signature")
+        length = s.read(1)[0]
+        if length + 2 != len(signature_bin):
+            raise SyntaxError("Bad Signature Length")
+        marker = s.read(1)[0]
+        if marker != 0x02:
+            raise SyntaxError("Bad Signature")
+        rlength = s.read(1)[0]
+        r = int.from_bytes(s.read(rlength), 'big')
+        marker = s.read(1)[0]
+        if marker != 0x02:
+            raise SyntaxError("Bad Signature")
+        slength = s.read(1)[0]
+        s = int.from_bytes(s.read(slength), 'big')
+        if len(signature_bin) != 6 + rlength + slength:
+            raise SyntaxError("Signature too long")
+        return cls(r, s)
 
 
-# tag::source13[]
+class SignatureTest(TestCase):
+
+    def test_der(self):
+        testcases = (
+            (1, 2),
+            (randint(0, 2**256), randint(0, 2**255)),
+            (randint(0, 2**256), randint(0, 2**255)),
+        )
+        for r, s in testcases:
+            sig = Signature(r, s)
+            der = sig.der()
+            sig2 = Signature.parse(der)
+            self.assertEqual(sig2.r, r)
+            self.assertEqual(sig2.s, s)
+
+
 class PrivateKey:
 
     def __init__(self, secret):
         self.secret = secret
-        self.point = secret * G  # <1>
+        self.point = secret * G
 
     def hex(self):
         return '{:x}'.format(self.secret).zfill(64)
-    # end::source13[]
 
-    # tag::source14[]
     def sign(self, z):
-        k = self.deterministic_k(z)  # <1>
+        k = self.deterministic_k(z)
+        # r is the x coordinate of the resulting point k*G
         r = (k * G).x.num
+        # remember 1/k = pow(k, N-2, N)
         k_inv = pow(k, N - 2, N)
+        # s = (z+r*secret) / k
         s = (z + r * self.secret) * k_inv % N
         if s > N / 2:
             s = N - s
+        # return an instance of Signature:
+        # Signature(r, s)
         return Signature(r, s)
 
     def deterministic_k(self, z):
@@ -483,10 +653,23 @@ class PrivateKey:
             v = hmac.new(k, v, s256).digest()
             candidate = int.from_bytes(v, 'big')
             if candidate >= 1 and candidate < N:
-                return candidate  # <2>
+                return candidate
             k = hmac.new(k, v + b'\x00', s256).digest()
             v = hmac.new(k, v, s256).digest()
-    # end::source14[]
+
+    # tag::source6[]
+    def wif(self, compressed=True, testnet=False):
+        secret_bytes = self.secret.to_bytes(32, 'big')
+        if testnet:
+            prefix = b'\xef'
+        else:
+            prefix = b'\x80'
+        if compressed:
+            suffix = b'\x01'
+        else:
+            suffix = b''
+        return encode_base58_checksum(prefix + secret_bytes + suffix)
+    # end::source6[]
 
 
 class PrivateKeyTest(TestCase):
@@ -496,3 +679,17 @@ class PrivateKeyTest(TestCase):
         z = randint(0, 2**256)
         sig = pk.sign(z)
         self.assertTrue(pk.point.verify(z, sig))
+
+    def test_wif(self):
+        pk = PrivateKey(2**256 - 2**199)
+        expected = 'L5oLkpV3aqBJ4BgssVAsax1iRa77G5CVYnv9adQ6Z87te7TyUdSC'
+        self.assertEqual(pk.wif(compressed=True, testnet=False), expected)
+        pk = PrivateKey(2**256 - 2**201)
+        expected = '93XfLeifX7Jx7n7ELGMAf1SUR6f9kgQs8Xke8WStMwUtrDucMzn'
+        self.assertEqual(pk.wif(compressed=False, testnet=True), expected)
+        pk = PrivateKey(0x0dba685b4511dbd3d368e5c4358a1277de9486447af7b3604a69b8d9d8b7889d)
+        expected = '5HvLFPDVgFZRK9cd4C5jcWki5Skz6fmKqi1GQJf5ZoMofid2Dty'
+        self.assertEqual(pk.wif(compressed=False, testnet=False), expected)
+        pk = PrivateKey(0x1cca23de92fd1862fb5b76e5f4f50eb082165e5191e116c18ed1a6b24be6a53f)
+        expected = 'cNYfWuhDpbNM1JWc3c6JTrtrFVxU4AGhUKgw5f93NP2QaBqmxKkg'
+        self.assertEqual(pk.wif(compressed=True, testnet=True), expected)
